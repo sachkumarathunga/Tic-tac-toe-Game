@@ -4,8 +4,8 @@ const { checkWinner } = require("../helpers/gameLogic");
 const createGame = (req, res) => {
   const { username } = req.body;
   const gameKey = Math.random().toString(36).substring(2, 8).toUpperCase();
-  const sql = `INSERT INTO games (game_key, player1, turn) VALUES (?, ?, ?)`;
-  db.run(sql, [gameKey, username, username], (err) => {
+  const sql = `INSERT INTO games (game_key, player1, turn, moves) VALUES (?, ?, ?, ?)`;
+  db.run(sql, [gameKey, username, username, JSON.stringify([])], (err) => {
     if (err) {
       console.error("Error creating game:", err.message);
       return res
@@ -20,14 +20,16 @@ const enrollGame = (req, res) => {
   const { gameKey, username } = req.body;
   const sql = `UPDATE games SET player2 = ?, status = 'ready' WHERE game_key = ? AND player2 IS NULL`;
   db.run(sql, [username, gameKey], function (err) {
-    if (err || this.changes === 0)
+    if (err || this.changes === 0) {
       return res.status(400).json({ error: "Enrollment failed or game full." });
+    }
     res.json({ message: "Enrollment successful." });
   });
 };
 
 const makeMove = (req, res) => {
   const { gameKey, username, index } = req.body;
+
   const sqlGet = `SELECT * FROM games WHERE game_key = ?`;
   db.get(sqlGet, [gameKey], (err, game) => {
     if (err || !game) return res.status(404).json({ error: "Game not found." });
@@ -45,7 +47,9 @@ const makeMove = (req, res) => {
       return res.status(400).json({ error: "Invalid move." });
     }
 
-    board[index] = game.player1 === username ? "X" : "O";
+    const mark = game.player1 === username ? "X" : "O";
+    board[index] = mark;
+
     const winnerMark = checkWinner(board);
     let winnerName = null;
 
@@ -60,30 +64,39 @@ const makeMove = (req, res) => {
       : game.turn === game.player1
       ? game.player2
       : game.player1;
+
     const status = winnerMark
       ? winnerMark === "draw"
         ? "draw"
         : `${winnerName} wins`
       : "ready";
 
-    const sqlUpdate = `UPDATE games SET board = ?, status = ?, turn = ? WHERE game_key = ?`;
-    db.run(sqlUpdate, [board.join(""), status, nextTurn, gameKey], (err) => {
+    // Add move to the replay history
+    const moveHistory = game.moves ? JSON.parse(game.moves) : [];
+    moveHistory.push({ player: username, mark, index });
+
+    const sqlUpdate = `UPDATE games SET board = ?, status = ?, turn = ?, moves = ? WHERE game_key = ?`;
+    db.run(sqlUpdate, [board.join(""), status, nextTurn, JSON.stringify(moveHistory), gameKey], (err) => {
       if (err) return res.status(400).json({ error: "Failed to update game." });
       res.json({
         board: board.join(""),
         status,
         winner: winnerName || null,
         turn: nextTurn,
+        moves: moveHistory,
       });
     });
   });
 };
 
+
 const getGameStatus = (req, res) => {
   const { gameKey } = req.params;
   const sql = `SELECT * FROM games WHERE game_key = ?`;
   db.get(sql, [gameKey], (err, row) => {
-    if (err || !row) return res.status(404).json({ error: "Game not found." });
+    if (err || !row) {
+      return res.status(404).json({ error: "Game not found." });
+    }
     res.json(row);
   });
 };
