@@ -12,7 +12,7 @@ if (!fs.existsSync(path.dirname(dbPath))) {
 
 // Create database file if it doesn't exist
 if (!fs.existsSync(dbPath)) {
-  fs.writeFileSync(dbPath, ""); // Create empty file
+  fs.writeFileSync(dbPath, ""); // Create an empty file
 }
 
 const db = new sqlite3.Database(dbPath, (err) => {
@@ -72,7 +72,8 @@ db.run(
     status TEXT DEFAULT 'waiting',
     board TEXT DEFAULT '---------', -- Ensure 9 empty slots for the game board
     turn TEXT DEFAULT '',
-    moves TEXT DEFAULT '' -- Optional for move history
+    moves TEXT DEFAULT '',
+    is_ai_game BOOLEAN DEFAULT 0
   )
   `,
   (err) => {
@@ -80,6 +81,7 @@ db.run(
     else {
       // Ensure the 'moves' column exists
       addColumnIfNotExists("games", "moves", "TEXT DEFAULT ''");
+      addColumnIfNotExists("games", "is_ai_game", "BOOLEAN DEFAULT 0");
     }
   }
 );
@@ -97,6 +99,43 @@ db.run(
   `,
   (err) => {
     if (err) console.error("Error creating 'replay' table:", err.message);
+    else {
+      console.log("Index created on 'replay.game_key'.");
+    }
+  }
+);
+
+// Create game_logs table
+db.run(
+  `
+  CREATE TABLE IF NOT EXISTS game_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_key TEXT NOT NULL,
+    player TEXT,
+    action TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+  `,
+  (err) => {
+    if (err) console.error("Error creating 'game_logs' table:", err.message);
+    else {
+      console.log("Table 'game_logs' created or already exists.");
+    }
+  }
+);
+
+// Create index for game_logs
+db.run(
+  `CREATE INDEX IF NOT EXISTS idx_game_logs_game_key ON game_logs (game_key)`,
+  (err) => {
+    if (err) {
+      console.error(
+        "Error creating index on 'game_logs.game_key':",
+        err.message
+      );
+    } else {
+      console.log("Index created on 'game_logs.game_key'.");
+    }
   }
 );
 
