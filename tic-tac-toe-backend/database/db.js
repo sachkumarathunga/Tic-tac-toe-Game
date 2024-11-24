@@ -139,4 +139,38 @@ db.run(
   }
 );
 
+// Create chat table for chat feature with private chat support
+db.run(
+  `
+  CREATE TABLE IF NOT EXISTS chat (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_key TEXT NOT NULL,
+    username TEXT NOT NULL,
+    message TEXT NOT NULL,
+    chat_type TEXT DEFAULT 'public', -- public or private
+    target_user TEXT, -- for private messages, target user is stored
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+  `,
+  (err) => {
+    if (err) {
+      console.error("Error creating 'chat' table:", err.message);
+    } else {
+      console.log("Table 'chat' created or already exists.");
+    }
+  }
+);
+
+// Create index for chat table
+db.run(
+  `CREATE INDEX IF NOT EXISTS idx_chat_game_key ON chat (game_key)`,
+  (err) => {
+    if (err) {
+      console.error("Error creating index on 'chat.game_key':", err.message);
+    } else {
+      console.log("Index created on 'chat.game_key'.");
+    }
+  }
+);
+
 module.exports = db;

@@ -199,11 +199,49 @@ const getGameStatus = (req, res) => {
   });
 };
 
+
+const sendMessage = (req, res) => {
+  const { gameKey, username, message } = req.body;
+
+  if (!message || !message.trim()) {
+    return res.status(400).json({ error: "Message cannot be empty." });
+  }
+
+  const sql = `INSERT INTO chat (game_key, username, message) VALUES (?, ?, ?)`;
+  db.run(sql, [gameKey, username, message.trim()], (err) => {
+    if (err) {
+      console.error("Failed to save chat message:", err.message);
+      return res.status(500).json({ error: "Failed to send message." });
+    }
+    res.json({ message: "Message sent successfully." });
+  });
+};
+
+
+
+const getMessages = (req, res) => {
+  const { gameKey } = req.params;
+
+  const sql = `SELECT username, message, timestamp FROM chat WHERE game_key = ? ORDER BY id ASC`;
+  db.all(sql, [gameKey], (err, rows) => {
+    if (err) {
+      console.error("Failed to fetch chat messages:", err.message);
+      return res.status(500).json({ error: "Failed to get messages." });
+    }
+    res.json(rows); // Return all messages
+  });
+};
+
+
+
+// Export these functions correctly
 module.exports = {
   createGame,
   enrollGame,
   createAIGame,
-  addSpectator, // Added for spectator mode
+  addSpectator,
   makeMove,
   getGameStatus,
+  addChatMessage: sendMessage, // Add this
+  getChatMessages: getMessages, // And this
 };
