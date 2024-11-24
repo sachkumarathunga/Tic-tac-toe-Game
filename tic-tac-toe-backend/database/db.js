@@ -73,15 +73,17 @@ db.run(
     board TEXT DEFAULT '---------', -- Ensure 9 empty slots for the game board
     turn TEXT DEFAULT '',
     moves TEXT DEFAULT '',
-    is_ai_game BOOLEAN DEFAULT 0
+    is_ai_game BOOLEAN DEFAULT 0,
+    board_size INTEGER DEFAULT 3 -- Default to 3x3 board
   )
   `,
   (err) => {
     if (err) console.error("Error creating 'games' table:", err.message);
     else {
-      // Ensure the 'moves' column exists
+      // Ensure the 'moves' column and 'board_size' column exist
       addColumnIfNotExists("games", "moves", "TEXT DEFAULT ''");
       addColumnIfNotExists("games", "is_ai_game", "BOOLEAN DEFAULT 0");
+      addColumnIfNotExists("games", "board_size", "INTEGER DEFAULT 3");
     }
   }
 );
