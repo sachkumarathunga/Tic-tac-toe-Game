@@ -2,10 +2,22 @@ const db = require("../database/db");
 
 const register = (req, res) => {
   const { username, password } = req.body;
+
+  // Regular expression to allow only alphanumeric characters and underscores
+  const usernameRegex = /^[a-zA-Z0-9_]+$/;
+
   if (!username || !password) {
     return res
       .status(400)
       .json({ error: "Username and password are required." });
+  }
+
+  if (!usernameRegex.test(username)) {
+    return res
+      .status(400)
+      .json({
+        error: "Username can only contain letters, numbers, and underscores.",
+      });
   }
 
   const sql = `INSERT INTO users (username, password) VALUES (?, ?)`;
@@ -19,10 +31,18 @@ const register = (req, res) => {
 
 const login = (req, res) => {
   const { username, password } = req.body;
+
+  // Regular expression to allow only alphanumeric characters and underscores
+  const usernameRegex = /^[a-zA-Z0-9_]+$/;
+
   if (!username || !password) {
     return res
       .status(400)
       .json({ error: "Username and password are required." });
+  }
+
+  if (!usernameRegex.test(username)) {
+    return res.status(400).json({ error: "Invalid username format." });
   }
 
   const sql = `SELECT * FROM users WHERE username = ? AND password = ?`;
@@ -34,4 +54,4 @@ const login = (req, res) => {
   });
 };
 
-module.exports = { register, login }; // Export the functions
+module.exports = { register, login };
