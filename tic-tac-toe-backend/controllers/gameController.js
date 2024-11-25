@@ -90,7 +90,7 @@ const createAIGame = (req, res) => {
       "ready",
       emptyBoard,
       JSON.stringify([]),
-      1,
+      1, // AI Game flag
       boardSize,
     ],
     (err) => {
@@ -105,7 +105,7 @@ const createAIGame = (req, res) => {
 
 // Add a spectator to the game
 const addSpectator = (req, res) => {
-  const { gameKey, username } = req.body;
+  const { gameKey } = req.body;
   const sql = `SELECT * FROM games WHERE game_key = ?`;
   db.get(sql, [gameKey], (err, row) => {
     if (err || !row) {
@@ -121,7 +121,9 @@ const makeMove = (req, res) => {
 
   const sqlGet = `SELECT * FROM games WHERE game_key = ?`;
   db.get(sqlGet, [gameKey], (err, game) => {
-    if (err || !game) return res.status(404).json({ error: "Game not found." });
+    if (err || !game) {
+      return res.status(404).json({ error: "Game not found." });
+    }
 
     if (game.status !== "ready") {
       return res.status(400).json({ error: "Game is not ready." });
@@ -136,6 +138,7 @@ const makeMove = (req, res) => {
       return res.status(400).json({ error: "Invalid move." });
     }
 
+    // Player move
     const mark = game.player1 === username ? "X" : "O";
     board[index] = mark;
 
@@ -163,30 +166,17 @@ const makeMove = (req, res) => {
     const moveHistory = game.moves ? JSON.parse(game.moves) : [];
     moveHistory.push({ player: username, mark, index });
 
-    if (game.is_ai_game && !winnerMark && nextTurn === "AI") {
-      const aiMove = getBestAIMove(board, "O", game.board_size);
-      if (aiMove !== null) {
-        board[aiMove] = "O";
-        moveHistory.push({ player: "AI", mark: "O", index: aiMove });
-
-        const aiWinnerMark = checkWinner(board, game.board_size);
-        if (aiWinnerMark) {
-          winnerName = aiWinnerMark === "X" ? game.player1 : "AI";
-          nextTurn = null;
-        } else {
-          nextTurn = game.player1;
-        }
-      }
-    }
-
+    // Update board after player's move
     const sqlUpdate = `UPDATE games SET board = ?, status = ?, turn = ?, moves = ? WHERE game_key = ?`;
     db.run(
       sqlUpdate,
       [board.join(""), status, nextTurn, JSON.stringify(moveHistory), gameKey],
       (err) => {
-        if (err)
-          return res.status(400).json({ error: "Failed to update game." });
+        if (err) {
+          return res.status(500).json({ error: "Failed to update game." });
+        }
 
+        // Send immediate response for player's move
         res.json({
           board: board.join(""),
           status,
@@ -194,11 +184,58 @@ const makeMove = (req, res) => {
           turn: nextTurn,
           moves: moveHistory,
         });
+
+        // Handle AI's move if it's an AI game and no winner yet
+        if (!winnerMark && game.is_ai_game && nextTurn === "AI") {
+          handleAIMove(gameKey, board, moveHistory, game.board_size);
+        }
       }
     );
   });
 };
 
+
+// AI move logic
+const handleAIMove = (gameKey, board, moveHistory, boardSize) => {
+  const aiMark = moveHistory.length % 2 === 0 ? "X" : "O"; // Determine AI mark
+  const aiMove = getBestAIMove(board, aiMark, boardSize);
+
+  if (aiMove !== null) {
+    board[aiMove] = aiMark;
+    moveHistory.push({ player: "AI", mark: aiMark, index: aiMove });
+
+    const aiWinnerMark = checkWinner(board, boardSize);
+    let winnerName = null;
+
+    if (aiWinnerMark === "X") {
+      winnerName = "Player 1";
+    } else if (aiWinnerMark === "O") {
+      winnerName = "AI";
+    }
+
+    const nextTurn = aiWinnerMark ? null : "Player 1";
+    const status = aiWinnerMark
+      ? aiWinnerMark === "draw"
+        ? "draw"
+        : `${winnerName} wins`
+      : "ready";
+
+    // Update database after AI move
+    const sqlAIUpdate = `UPDATE games SET board = ?, status = ?, turn = ?, moves = ? WHERE game_key = ?`;
+    db.run(
+      sqlAIUpdate,
+      [board.join(""), status, nextTurn, JSON.stringify(moveHistory), gameKey],
+      (err) => {
+        if (err) {
+          console.error("Failed to update AI move:", err.message);
+        }
+      }
+    );
+  }
+};
+
+
+// AI move helper function
 // AI move helper function
 const getBestAIMove = (board, aiMark, boardSize) => {
   const playerMark = aiMark === "X" ? "O" : "X";
@@ -206,28 +243,38 @@ const getBestAIMove = (board, aiMark, boardSize) => {
     .map((cell, index) => (cell === "-" ? index : null))
     .filter((cell) => cell !== null);
 
+  // Check if AI can win in the next move
   for (const cell of emptyCells) {
     board[cell] = aiMark;
     if (checkWinner(board, boardSize) === aiMark) {
-      board[cell] = "-";
-      return cell;
+      board[cell] = "-"; // Revert back to empty
+      return cell; // Return winning move
     }
     board[cell] = "-";
   }
 
+  // Check if the player can win in the next move and block them
   for (const cell of emptyCells) {
     board[cell] = playerMark;
     if (checkWinner(board, boardSize) === playerMark) {
-      board[cell] = "-";
-      return cell;
+      board[cell] = "-"; // Revert back to empty
+      return cell; // Block the player
     }
     board[cell] = "-";
   }
 
-  return emptyCells[Math.floor(Math.random() * emptyCells.length)] || null;
+  // Otherwise, pick a random available cell
+  if (emptyCells.length > 0) {
+    return emptyCells[Math.floor(Math.random() * emptyCells.length)];
+  }
+
+  // If no moves are available (edge case), return null
+  return null;
 };
 
+
 // Get the current game status
+// In gameController.js
 const getGameStatus = (req, res) => {
   const { gameKey } = req.params;
   const sql = `SELECT * FROM games WHERE game_key = ?`;
@@ -249,9 +296,12 @@ const getGameStatus = (req, res) => {
       turn: row.turn,
       status: row.status,
       moves: row.moves,
+      player1: row.player1, // Add player1 username
+      player2: row.player2, // Add player2 username
     });
   });
 };
+
 
 // Send a chat message
 const sendMessage = (req, res) => {
@@ -296,3 +346,4 @@ module.exports = {
   addChatMessage: sendMessage,
   getChatMessages: getMessages,
 };
+

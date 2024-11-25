@@ -20,46 +20,93 @@ const db = new sqlite3.Database(dbPath, (err) => {
   console.log("Connected to SQLite database.");
 });
 
-// Helper function to add a column if it doesn't exist
-const addColumnIfNotExists = (tableName, columnName, columnDefinition) => {
+// Helper function to check if a column exists and recreate the table if needed
+const recreateTableIfMissingColumn = (tableName, columns) => {
   const sql = `PRAGMA table_info(${tableName})`;
-  db.all(sql, (err, columns) => {
+  db.all(sql, (err, existingColumns) => {
     if (err) {
       console.error(`Error fetching table info for ${tableName}:`, err.message);
       return;
     }
-    const columnExists = columns.some((col) => col.name === columnName);
-    if (!columnExists) {
-      db.run(
-        `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`,
-        (err) => {
-          if (err) {
+
+    const missingColumns = columns.filter(
+      (col) =>
+        !existingColumns.some((existingCol) => existingCol.name === col.name)
+    );
+
+    if (missingColumns.length > 0) {
+      console.log(
+        `Recreating table '${tableName}' to add missing columns:`,
+        missingColumns.map((col) => col.name).join(", ")
+      );
+
+      // Backup and drop the table
+      db.serialize(() => {
+        db.run(
+          `ALTER TABLE ${tableName} RENAME TO ${tableName}_backup`,
+          (err) => {
+            if (err)
+              console.error(
+                `Error renaming table '${tableName}':`,
+                err.message
+              );
+          }
+        );
+
+        // Recreate the table with the correct schema
+        const createSQL = `
+          CREATE TABLE ${tableName} (
+            ${columns.map((col) => `${col.name} ${col.definition}`).join(",\n")}
+          )
+        `;
+        db.run(createSQL, (err) => {
+          if (err)
             console.error(
-              `Error adding column '${columnName}' to '${tableName}':`,
+              `Error recreating table '${tableName}':`,
               err.message
             );
-          } else {
-            console.log(`Column '${columnName}' added to '${tableName}'.`);
+          else console.log(`Recreated table '${tableName}'.`);
+        });
+
+        // Copy data back from backup (excluding missing columns)
+        const existingColumnNames = existingColumns
+          .map((col) => col.name)
+          .join(", ");
+        const columnNames = columns.map((col) => col.name).join(", ");
+        db.run(
+          `INSERT INTO ${tableName} (${existingColumnNames}) SELECT ${existingColumnNames} FROM ${tableName}_backup`,
+          (err) => {
+            if (err)
+              console.error(
+                `Error copying data back to '${tableName}':`,
+                err.message
+              );
           }
-        }
-      );
+        );
+
+        // Drop the backup table
+        db.run(`DROP TABLE ${tableName}_backup`, (err) => {
+          if (err)
+            console.error(
+              `Error dropping backup table '${tableName}_backup':`,
+              err.message
+            );
+        });
+      });
     }
   });
 };
 
-// Create users table
-db.run(
-  `
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE,
-    password TEXT
-  )
-  `,
-  (err) => {
-    if (err) console.error("Error creating 'users' table:", err.message);
-  }
-);
+// Define the expected schema for the users table
+const usersTableSchema = [
+  { name: "id", definition: "INTEGER PRIMARY KEY AUTOINCREMENT" },
+  { name: "username", definition: "TEXT UNIQUE" },
+  { name: "email", definition: "TEXT UNIQUE" },
+  { name: "password", definition: "TEXT" },
+];
+
+// Recreate the users table if necessary
+recreateTableIfMissingColumn("users", usersTableSchema);
 
 // Create games table
 db.run(
@@ -79,12 +126,6 @@ db.run(
   `,
   (err) => {
     if (err) console.error("Error creating 'games' table:", err.message);
-    else {
-      // Ensure the 'moves' column and 'board_size' column exist
-      addColumnIfNotExists("games", "moves", "TEXT DEFAULT ''");
-      addColumnIfNotExists("games", "is_ai_game", "BOOLEAN DEFAULT 0");
-      addColumnIfNotExists("games", "board_size", "INTEGER DEFAULT 3");
-    }
   }
 );
 
@@ -101,9 +142,6 @@ db.run(
   `,
   (err) => {
     if (err) console.error("Error creating 'replay' table:", err.message);
-    else {
-      console.log("Index created on 'replay.game_key'.");
-    }
   }
 );
 
@@ -120,24 +158,6 @@ db.run(
   `,
   (err) => {
     if (err) console.error("Error creating 'game_logs' table:", err.message);
-    else {
-      console.log("Table 'game_logs' created or already exists.");
-    }
-  }
-);
-
-// Create index for game_logs
-db.run(
-  `CREATE INDEX IF NOT EXISTS idx_game_logs_game_key ON game_logs (game_key)`,
-  (err) => {
-    if (err) {
-      console.error(
-        "Error creating index on 'game_logs.game_key':",
-        err.message
-      );
-    } else {
-      console.log("Index created on 'game_logs.game_key'.");
-    }
   }
 );
 
@@ -155,23 +175,7 @@ db.run(
   )
   `,
   (err) => {
-    if (err) {
-      console.error("Error creating 'chat' table:", err.message);
-    } else {
-      console.log("Table 'chat' created or already exists.");
-    }
-  }
-);
-
-// Create index for chat table
-db.run(
-  `CREATE INDEX IF NOT EXISTS idx_chat_game_key ON chat (game_key)`,
-  (err) => {
-    if (err) {
-      console.error("Error creating index on 'chat.game_key':", err.message);
-    } else {
-      console.log("Index created on 'chat.game_key'.");
-    }
+    if (err) console.error("Error creating 'chat' table:", err.message);
   }
 );
 
